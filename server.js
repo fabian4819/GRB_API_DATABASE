@@ -6,10 +6,6 @@ const port = 3000
 
 app.use(express.json())
 
-app.get("/", (req, res) => { 
-    res.send("Hello World!") 
-})
-
-app.use("/api/v1/books", bookRoutes)
+app.use("/", bookRoutes)
 
 app.listen(port, () => console.log(`Server is running on port ${port}`))
