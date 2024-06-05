@@ -25,8 +25,25 @@ const getBookById = (req, res) => {
     })
 }
 
+const getBookByCategory = (req, res) => {
+    const { category } = req.params;
+    pool.query(queries.getBookByCategory, [category], (error, results) => {
+        if (error) {
+            console.error(error.message)
+            res.status(500).send("Server Error")
+            return
+        }
+        if (results.rows.length === 0) {
+            res.status(404).send("Book not found")
+            return
+        }
+        res.status(200).json(results.rows)
+    })
+}
+
 
 module.exports = {
     getBooks,
     getBookById,
+    getBookByCategory,
 }   
