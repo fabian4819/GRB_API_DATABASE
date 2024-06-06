@@ -1,5 +1,5 @@
 const express = require("express")
-const bookRoutes = require("./src/book/routes")
+const bookRoutes = require("./src/routes")
 
 const app = express()
 const port = 3000
