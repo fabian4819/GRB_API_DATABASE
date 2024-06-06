@@ -1,6 +1,7 @@
 const pool = require('../db')
 const queries = require('./queries')
 
+// get all books
 const getBooks = (req, res) => {
     pool.query(queries.getBooks, (error, results) => {
         if (error)
@@ -9,6 +10,7 @@ const getBooks = (req, res) => {
     })
 }
 
+// get book by id
 const getBookById = (req, res) => {
     const { id } = req.params;
     pool.query(queries.getBookById, [id], (error, results) => {
@@ -25,6 +27,7 @@ const getBookById = (req, res) => {
     })
 }
 
+// get books by category
 const getBookByCategory = (req, res) => {
     const { categoryName } = req.params;
     pool.query(queries.getBookByCategory, [categoryName], (error, results) => {
@@ -41,6 +44,7 @@ const getBookByCategory = (req, res) => {
     })
 }
 
+// add book with existing publisher
 const addBookWithExistingPublisher = (req, res) => {
     const { bookName, publicationYear, pages, price, publisherName } = req.body;
     pool.query(queries.addBook, [bookName, publicationYear, pages, price, publisherName], (error, results) => {
@@ -53,6 +57,7 @@ const addBookWithExistingPublisher = (req, res) => {
     })
 }
 
+// add book with new publisher
 const addBookWithNewPublisher = async (req, res) => {
     const { bookName, publicationYear, pages, price, publisherName, city, country, telephone, yearFounded } = req.body;
 
@@ -80,6 +85,7 @@ const addBookWithNewPublisher = async (req, res) => {
     }
 }
 
+// update book
 const updateBook = (req, res) => {
     const { id } = req.params;
     const { bookName, publicationYear, pages, price, publisherName } = req.body;
@@ -97,6 +103,7 @@ const updateBook = (req, res) => {
     })
 }
 
+// delete book
 const deleteBook = (req, res) => {
     const { id } = req.params;
     pool.query(queries.deleteBook, [id], (error, results) => {
@@ -113,6 +120,7 @@ const deleteBook = (req, res) => {
     })
 }
 
+// search book by keyword
 const searchBook = (req, res) => {
     const { keyword } = req.params;
     pool.query(queries.searchBook, [`%${keyword}%`], (error, results) => {
@@ -129,6 +137,20 @@ const searchBook = (req, res) => {
     })
 }
 
+// add book to wishlist
+const addBookToWishlist = (req, res) => {
+    const { customerName, bookName } = req.body;
+    pool.query(queries.addBookToWishlist, [customerName, bookName], (error, results) => {
+        if (error) {
+            console.error('Error adding book to wishlist:', error.message);
+            res.status(500).send("Server Error");
+            return;
+        }
+        res.status(201).send("Book added to wishlist successfully");
+    })
+}
+
+// get wishlist by customer
 const getWishlistByCustomer = (req, res) => {
     const { customerName } = req.params;
     pool.query(queries.getWishlistByCustomer, [customerName], (error, results) => {
@@ -145,18 +167,7 @@ const getWishlistByCustomer = (req, res) => {
     })
 }
 
-const addBookToWishlist = (req, res) => {
-    const { customerName, bookName } = req.body;
-    pool.query(queries.addBookToWishlist, [customerName, bookName], (error, results) => {
-        if (error) {
-            console.error('Error adding book to wishlist:', error.message);
-            res.status(500).send("Server Error");
-            return;
-        }
-        res.status(201).send("Book added to wishlist successfully");
-    })
-}
-
+// remove book from wishlist
 const removeBookFromWishlist = (req, res) => {
     const { customerName, bookName } = req.params;
     pool.query(queries.removeBookFromWishlist, [customerName, bookName], (error, results) => {
@@ -235,8 +246,104 @@ const buildQuery = (req, res) => {
 };
 
 
-// TCL
+// TCL - transaction control language
+// add multiple new books with existing publishers with transaction
+const addMultipleNewBooks = async (req, res) => {
+    const { books } = req.body;
 
+    // check if book data exists
+    if (!books || books.length === 0) {
+        res.status(400).json({ error: "No books provided" });
+        return;
+    }
+
+    // check each book to make sure there are no NULL grades
+    for (let book of books) {
+        if (!book.bookName || !book.publicationYear || !book.pages || !book.price || !book.publisherName) {
+            res.status(400).json({ error: "All fields are required for each book" });
+            return;
+        }
+    }
+
+    // all validations are successful, proceed with the addition of books
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        for (let book of books) {
+            const { bookName, publicationYear, pages, price, publisherName } = book;
+            await client.query(queries.addBook, [bookName, publicationYear, pages, price, publisherName]);
+        }
+
+        await client.query('COMMIT');
+        res.status(201).json({ message: 'Books added successfully' });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error adding books:', error);
+        res.status(500).json({ error: 'Failed to add books' });
+    } finally {
+        client.release();
+    }
+};
+
+// add multiple books to wishlist with transaction
+const addMultipleBooksToWishlist = async (req, res) => {
+    const { books } = req.body;
+
+    // Create a client from the pool
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN'); // Begin transaction
+
+        // Insert each book to wishlist
+        for (let book of books) {
+            const { customerName, bookName } = book;
+            await client.query(queries.addBookToWishlist, [customerName, bookName]);
+        }
+
+        await client.query('COMMIT'); // Commit transaction
+
+        res.status(201).json({ message: 'Books added to wishlist successfully' });
+    } catch (error) {
+        await client.query('ROLLBACK'); // Rollback transaction on error
+        console.error('Error adding books to wishlist:', error);
+        res.status(500).json({ error: 'Failed to add books to wishlist' });
+    } finally {
+        client.release(); // Release the client back to the pool
+    }
+}
+
+// update multiple books with transaction
+const updateMultipleBooks = async (req, res) => {
+    const { bookIds, books } = req.body;
+
+    // Create a client from the pool
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN'); // Begin transaction
+
+        // Update each book
+        for (let i = 0; i < books.length; i++) {
+            const { bookName, publicationYear, pages, price, publisherName } = books[i];
+            const bookId = bookIds[i];
+
+            await client.query(queries.updateBook, [bookName, publicationYear, pages, price, publisherName, bookId]);
+        }
+
+        await client.query('COMMIT'); // Commit transaction
+
+        res.status(200).json({ message: 'Books updated successfully' });
+    } catch (error) {
+        await client.query('ROLLBACK'); // Rollback transaction on error
+        console.error('Error updating books:', error);
+        res.status(500).json({ error: 'Failed to update books' });
+    } finally {
+        client.release(); // Release the client back to the pool
+    }
+};
 
 
 module.exports = {
@@ -251,5 +358,8 @@ module.exports = {
     getWishlistByCustomer,
     addBookToWishlist,
     removeBookFromWishlist,
-    buildQuery
+    buildQuery,
+    addMultipleNewBooks,
+    addMultipleBooksToWishlist,
+    updateMultipleBooks
 }   
