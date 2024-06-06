@@ -41,7 +41,7 @@ const getBookByCategory = (req, res) => {
     })
 }
 
-const addBook = (req, res) => {
+const addBookWithExistingPublisher = (req, res) => {
     const { bookName, publicationYear, pages, price, publisherName } = req.body;
     pool.query(queries.addBook, [bookName, publicationYear, pages, price, publisherName], (error, results) => {
         if (error) {
@@ -169,18 +169,87 @@ const removeBookFromWishlist = (req, res) => {
     })
 }
 
+// Dynamic SQL Query Builder --> Constructs and executes SQL queries based on user input
+const buildQuery = (req, res) => {
+    const { filters, sort, limit, offset } = req.body;
+    const { column, direction } = sort || {};
+
+    let query = 'SELECT * FROM public."Book"';
+    let queryParams = [];
+    let queryConditions = [];
+
+    // Build WHERE clause for filters
+    if (filters) {
+        Object.entries(filters).forEach(([key, value]) => {
+            if (typeof value === "object") {
+                Object.entries(value).forEach(([condition, filterValue]) => {
+                    const paramIndex = queryParams.length + 1;
+                    switch (condition) {
+                        case "gte":
+                            queryConditions.push(`"${key}" >= $${paramIndex}`);
+                            queryParams.push(filterValue);
+                            break;
+                        case "lte":
+                            queryConditions.push(`"${key}" <= $${paramIndex}`);
+                            queryParams.push(filterValue);
+                            break;
+                    }
+                });
+            } else {
+                const paramIndex = queryParams.length + 1;
+                queryConditions.push(`"${key}" = $${paramIndex}`);
+                queryParams.push(value);
+            }
+        });
+    }
+
+    // Combine conditions with WHERE clause
+    if (queryConditions.length > 0) {
+        query += ` WHERE ${queryConditions.join(" AND ")}`;
+    }
+
+    // Add ORDER BY clause
+    if (column && direction) {
+        query += ` ORDER BY "${column}" ${direction}`;
+    }
+
+    // Add LIMIT and OFFSET clauses
+    if (limit) {
+        queryParams.push(limit);
+        query += ` LIMIT $${queryParams.length}`;
+    }
+    if (offset) {
+        queryParams.push(offset);
+        query += ` OFFSET $${queryParams.length}`;
+    }
+
+    // Execute the Built Query
+    pool.query(query, queryParams, (error, results) => {
+        if (error) {
+            console.error('Error executing query:', error.message);
+            res.status(500).json({ error: 'Server Error' });
+            return;
+        }
+        res.status(200).json(results.rows);
+    });
+};
+
+
+// TCL
+
 
 
 module.exports = {
     getBooks,
     getBookById,
     getBookByCategory,
-    addBook,
+    addBookWithExistingPublisher,
     addBookWithNewPublisher,
     updateBook,
     deleteBook,
     searchBook,
     getWishlistByCustomer,
     addBookToWishlist,
-    removeBookFromWishlist
+    removeBookFromWishlist,
+    buildQuery
 }   
